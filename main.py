@@ -1,7 +1,7 @@
 from util import get_link_data, post_data, build_data, cancel_import, get_user_yn, ImportLogger
 from config import JIRA_URL, JIRA_HEADERS, SOURCE_URL, SOURCE_HEADERS, SOURCE_LIST
 
-LOGGER = ImportLogger("dome", "dome").get_logger()
+LOGGER = ImportLogger("import_main", "import").get_logger()
 
 jira_status = ""
 jira_start = ""
