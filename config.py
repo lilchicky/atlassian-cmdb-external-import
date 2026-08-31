@@ -1,5 +1,6 @@
 import os
 import logging
+import datetime
 
 from dotenv import load_dotenv
 
@@ -24,11 +25,13 @@ SOURCE_HEADERS = {
     "Authorization": f"Basic {SOURCE_TOKEN}"
 }
 
-# Universal timeout wait for get requests
+# Universal timeout wait for get requests, in seconds.
 TIMEOUT = 40
 
 # How many times to check the status of the currently ongoing import before aborting. Note that, if the timeout is reached, the import may
-# be broken, and will need to be cancelled, or it may just take longer than expected and will finish on its own.
+# be broken, and will need to be cancelled, or it may just take longer than expected and will finish on its own. Note that this number 
+# represents an iteration, not a time, so the length to finish the check loop may fluctuate depending on how long it takes to fetch
+# the status.
 POST_TIMEOUT = 500
 
 # This is a list of "entries" that represent individual sources of data to be mapped to objects in CMDB.
@@ -142,7 +145,8 @@ DATA_MAPS = [
 ]
 
 # A replacement table for any dynamic values found in URL addresses in [DATA_MAPS], defined as 
-# "VALUE TO REPLACE": "ADDRESS TO KEY VALUE TO FILL"
+# "VALUE TO REPLACE": "ADDRESS TO KEY VALUE TO FILL". The address follows the same syntax as [DATA_MAPS],
+# and will also start its search at [SOURCE_URL].
 URL_REPLACEMENT_KEY = {
     "device_id": "Id"
 }
@@ -169,36 +173,21 @@ DATA_TRANSLATIONS = {
 # This can help preserve any manually entered data in cases where the source does not have any.
 WRITE_EMPTY_DATA = False
 
-# debug, info, warning, error, critical
+# Logging level to print in the console and in log files.
+# Can be debug, info, warning, error, or critical.
 LOGGING_LEVEL = logging.INFO
-LOG_FILE = ""
 
-# Logger settings. Shouldn't need to be changed.
-class Formatter(logging.Formatter):
-    grey = "\x1b[38;20m"
-    yellow = "\x1b[33m"
-    red = "\x1b[31m"
-    reset = "\x1b[0m"
-    format = "%(asctime)s[%(name)s][%(levelname)s]: %(message)s"
+# Whether or not log files should be written.
+WRITE_LOGS_TO_FILE = True
 
-    FORMATS = {
-        logging.DEBUG: grey + format + reset,
-        logging.INFO: grey + format + reset,
-        logging.WARNING: yellow + format + reset,
-        logging.ERROR: red + format + reset,
-        logging.CRITICAL: red + format + reset
-    }
+# Folder logs will be stored in, with this folder being placed at the same level as the file being run.
+LOG_FOLDER = "logs"
 
-    def format(self, record):
-        log_format = self.FORMATS.get(record.levelno)
-        formatter = logging.Formatter(log_format)
-        return formatter.format(record)
-    
-LOGGER = logging.getLogger("main")
-logging.root.setLevel(LOGGING_LEVEL)
+# Log file name, formatted as PREFIX - BASE - SUFFIX. Any two of the three can be blank.
+# [BASE_LOG_FILE_NAME] is recommended to be something consistent, and can be adjusted if needed.
+BASE_LOG_FILE_NAME = "dome"
+LOG_FILE_PREFIX = f"{datetime.datetime.now():%Y-%m-%d_%H%M%S}"
+LOG_FILE_SUFFIX = ""
 
-handler = logging.StreamHandler()
-handler.setLevel(LOGGING_LEVEL)
-handler.setFormatter(Formatter())
-
-LOGGER.addHandler(handler)
+# Max number of saved logs. If logs go over this number, the oldest one will be deleted.
+MAX_SAVED_LOGS = 5

@@ -1,8 +1,10 @@
 import json
 import requests
 
-from config import JIRA_URL, JIRA_HEADERS, LOGGER, DATA_MAPS
-from util import get_link_data, get_source_data
+from config import JIRA_URL, JIRA_HEADERS, DATA_MAPS
+from util import get_link_data, get_source_data, ImportLogger
+
+LOGGER = ImportLogger("mapping_builder", "maps").get_logger()
 
 jira_schema = ""
 jira_mapping = ""
@@ -11,7 +13,7 @@ jira_mapping = ""
 def get_schema():
     LOGGER.info("Importing current Jira schema...")
 
-    schema_data = get_link_data(jira_schema, JIRA_HEADERS)
+    schema_data = get_link_data(jira_schema, JIRA_HEADERS, LOGGER)
     schema_data.raise_for_status()
 
     if (schema_data.ok):
@@ -59,7 +61,7 @@ def build_mapping(schema):
         path = loc.get("objectTypePath").split(".")
         type_mapping = None
 
-        for entry in get_source_data("schema.objectSchema.objectTypes", schema, "entries in object types"):
+        for entry in get_source_data("schema.objectSchema.objectTypes", schema, "entries in object types", LOGGER):
             result = find_type([entry], 0, path)
 
             if result is not None:
@@ -146,7 +148,7 @@ def build_mapping(schema):
     return mapping
 
 def init():
-    jira_links = get_link_data(JIRA_URL, JIRA_HEADERS)
+    jira_links = get_link_data(JIRA_URL, JIRA_HEADERS, LOGGER)
 
     if (not jira_links.ok):
         LOGGER.error(f"Jira connection failed: Response {jira_links.status_code}")

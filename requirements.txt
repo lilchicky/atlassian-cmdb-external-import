@@ -1,0 +1,5 @@
+dotenv
+requests
+uuid
+json
+logging
