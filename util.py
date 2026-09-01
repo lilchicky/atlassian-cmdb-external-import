@@ -189,7 +189,7 @@ def post_data(url: str, data: set, logger: logging.Logger) -> bool:
             if (not cancel):
                 logger.info(f"Import [{id}] will not be cancelled, and will attempt to finish if it can.")
             else:
-                cancel_import(import_cancel, id)
+                cancel_import(import_cancel, id, logger)
                 logger.info(f"Current Jira status: {status.get('status')}")
 
         logger.error(f"Data import failed to connect, aborting: Response {send.status_code}")
