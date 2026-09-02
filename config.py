@@ -6,9 +6,47 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# --------------------------------------------- PATH FORMATTING ---------------------------------------------
+# | Many of the settings in this file specify locations of values using a custom path definition. The path
+# | ontology is defined below:
+# |
+# | Paths are defined as each step through a JSON file required to get to the value(s) you want to retrieve.
+# | Each step in the paths are seperated with '/'.
+# |     For example: in the following JSON:
+# |         {
+# |             "values": [
+# |                 {
+# |                     "key": "value1"
+# |                 },
+# |                 {
+# |                     "key": "value2"
+# |                 }
+# |             ]
+# |         }
+# |     the path "values/*0/key" will return the value of "key" (value1) in the first element in "values".
+# |
+# | These paths support a few custom bits of syntax:
+# | - *: Using '*' after another element in the path will retrieve all values from the preceding element.
+# |     You can immediately follow '*' with an index to retrieve a specific element from that list. This
+# |     can be seen in the above example - values/*0/... will retrieve the values inside of the first element
+# |     of "values" (values[0]).
+# | - @: You can use '@' to denote that the value of that key will be a URL. That URL will automatically be
+# |     appended to the end of [SOURCE_API_URL], and will pull JSON data from that URL to then continue the
+# |     path. For example - key.@url_value.list will get some URL extension, like /api/... from "url_value",
+# |     found inside "key", then apply that extension to [SOURCE_API_URL], retrieve the JSON data from that
+# |     URL, and finally retrieve and return "list" from the new JSON data.
+# | - \: Paths support the use of '\' to escape any of the above prefixes. For example, if you have a key
+# |     "@data.id", specifying "\@data.id" in your path will simply return the value of that key, instead of
+# |     attempting to resolve a URL. You can also escape '/' in cases where the key may contain that character
+# |     to prevent it being parsed as a new path entry.
+# -----------------------------------------------------------------------------------------------------------
+
+# Name of the import ran using this config. Used in logging.
+IMPORT_NAME = "DOME Import"
+
 # Jira API settings
 JIRA_TOKEN = os.getenv("JIRA_TOKEN")
-JIRA_URL = "https://api.atlassian.com/jsm/assets/v1/imports/info"
+JIRA_URL = os.getenv("JIRA_API")
 JIRA_HEADERS = {
     "Accept": "application/json",
     "Authorization": f"Bearer {JIRA_TOKEN}"
@@ -19,10 +57,17 @@ JIRA_CANCELLATION_HEADERS = {
 
 # Import source API settings
 SOURCE_TOKEN = os.getenv("DOME_TOKEN")
-SOURCE_URL = "https://dome.static.uvu.edu/api/DeviceService/Devices"
+SOURCE_API_URL = os.getenv("DOME_API")
 SOURCE_HEADERS = {
     "Accept": "application/json",
     "Authorization": f"Basic {SOURCE_TOKEN}"
+}
+
+SOURCE_DATA_ENTRY_CONFIG = {
+    "source": "DeviceService/@@odata.id/@Devices@odata.navigationLink",
+    "listKey": "value",
+    "pageKey": "\@odata.nextLink",
+    "maxPages": 0
 }
 
 # Universal timeout wait for get requests, in seconds.
@@ -34,9 +79,8 @@ TIMEOUT = 40
 # the status.
 POST_TIMEOUT = 500
 
-# This is a list of "entries" that represent individual sources of data to be mapped to objects in CMDB.
-# [DATA_MAPS] is a list of attributes that are a part of each entry in this array.
-SOURCE_LIST = "value"
+# What percent intervals, out of [POST_TIMEOUT], to log the current progress of the above timeout. Set to 0 to disable.
+PROGRESS_WARN_PERCENT = 20
 
 # A list of mappings for data you want to be imported into CMDB, formatted as such:
 #
@@ -44,12 +88,12 @@ SOURCE_LIST = "value"
 #   with a period ('.').
 # "attributeName": This is the name of the attribute to be updated in Jira. This must match what is in Jira exactly!
 # "sourceKey": This is the path to the value in the source API you wish to grab and map to "attributeName". This path will start at
-#   whatever list is specified in [SOURCE_LIST], which itself is found at [SOURCE_URL].
+#   whatever list is specified in [SOURCE_LIST], which itself is found at [SOURCE_API_URL].
 #   - Entries should be seperated with '.'
 #   - To retrieve all elements of a list, then get values from those elements, use *. -> TABLE_NAME.*.value
-#   - To specify a deeper URL from [SOURCE_URL], use @[extended url], where [extended url] is an EXTENSION to be added to the end of
-#       [SOURCE_URL]. URLs defined here support formatting using {[PATH]}, defined in [URL_REPLACEMENT_KEY] below.
-#       -> @({device_id})/InventoryDetails.value.* will grab the JSON data from https://...source_url...(device_id)/InventoryDetails,
+#   - To specify a deeper URL from [SOURCE_API_URL], use @[extended url], where [extended url] is an EXTENSION to be added to the end of
+#       [SOURCE_API_URL]. URLs defined here support formatting using {[PATH]}, defined in [URL_REPLACEMENT_KEY] below.
+#       -> @({device_id})/InventoryDetails.value.* will grab the JSON data from https://...SOURCE_API_URL...(device_id)/InventoryDetails,
 #           then from that JSON data will run the rest of the path as normal.
 #
 #   - "sourceKey" can be an array of key paths. If it is, each key value from the array will be merged together in one string.
@@ -67,89 +111,88 @@ SOURCE_LIST = "value"
 # --------------------------------------------------------------------------------------------------------------
 DATA_MAPS = [
     {
-        "objectTypePath": "Devices.Servers",
+        "objectTypePath": "Devices/Servers",
         "attributeName": "ID",
         "sourceKey": "Id",
-        "isUniqueIdentifier": True
-    },
-    {
-        "objectTypePath": "Devices.Servers",
-        "attributeName": "Network Address",
-        "sourceKey": "DeviceManagement.*.NetworkAddress",
         "isUniqueIdentifier": False
     },
     {
-        "objectTypePath": "Devices.Servers",
+        "objectTypePath": "Devices/Servers",
+        "attributeName": "Identifier",
+        "sourceKey": "Identifier",
+        "isUniqueIdentifier": True
+    },
+    {
+        "objectTypePath": "Devices/Servers",
+        "attributeName": "Network Address",
+        "sourceKey": "DeviceManagement/*/NetworkAddress",
+        "isUniqueIdentifier": False
+    },
+    {
+        "objectTypePath": "Devices/Servers",
         "attributeName": "Name",
         "sourceKey": "DeviceName",
         "isUniqueIdentifier": False
     },
     {
-        "objectTypePath": "Devices.Servers",
+        "objectTypePath": "Devices/Servers",
         "attributeName": "Power",
         "sourceKey": "PowerState",
         "isUniqueIdentifier": False
     },
     {
-        "objectTypePath": "Devices.Servers",
+        "objectTypePath": "Devices/Servers",
         "attributeName": "Health",
         "sourceKey": "Status",
         "isUniqueIdentifier": False
     },
     {
-        "objectTypePath": "Devices.Servers",
+        "objectTypePath": "Devices/Servers",
         "attributeName": "Model",
         "sourceKey": "Model",
         "isUniqueIdentifier": False
     },
     {
-        "objectTypePath": "Devices.Servers",
+        "objectTypePath": "Devices/Servers",
         "attributeName": "Rack (Testing)",
         "sourceKey": [
-            "@({device_id})/InventoryDetails.value.*18.InventoryInfo.*.Rack",
-            "@({device_id})/InventoryDetails.value.*18.InventoryInfo.*.Aisle"
+            "@InventoryDetails@odata.navigationLink/value/*18/InventoryInfo/*/Aisle",
+            "@InventoryDetails@odata.navigationLink/value/*18/InventoryInfo/*/Rack"
         ],
         "isUniqueIdentifier": False
     },
     {
-        "objectTypePath": "Devices.Servers",
+        "objectTypePath": "Devices/Servers",
         "attributeName": "OS Name",
-        "sourceKey": "@({device_id})/InventoryDetails.value.*6.InventoryInfo.*.OsName",
+        "sourceKey": "@InventoryDetails@odata.navigationLink/value/*6/InventoryInfo/*/OsName",
         "isUniqueIdentifier": False
     },
     {
-        "objectTypePath": "Devices.Servers",
+        "objectTypePath": "Devices/Servers",
         "attributeName": "OS Version",
-        "sourceKey": "@({device_id})/InventoryDetails.value.*6.InventoryInfo.*.OsVersion",
+        "sourceKey": "@InventoryDetails@odata.navigationLink/value/*6/InventoryInfo/*/OsVersion",
         "isUniqueIdentifier": False
     },
     {
-        "objectTypePath": "Devices.Servers",
+        "objectTypePath": "Devices/Servers",
         "attributeName": "OS Hostname",
-        "sourceKey": "@({device_id})/InventoryDetails.value.*6.InventoryInfo.*.Hostname",
+        "sourceKey": "@InventoryDetails@odata.navigationLink/value/*6/InventoryInfo/*/Hostname",
         "isUniqueIdentifier": False
     },
     {
-        "objectTypePath": "Devices.Servers",
+        "objectTypePath": "Devices/Servers",
         "attributeName": "Slot",
-        "sourceKey": "@({device_id})/InventoryDetails.value.*18.InventoryInfo.*.Rackslot",
+        "sourceKey": "@InventoryDetails@odata.navigationLink/value/*18/InventoryInfo/*/Rackslot",
         "isUniqueIdentifier": False
     },
 
     {
-        "objectTypePath": "Org.Import Test Owners",
+        "objectTypePath": "Org/Import Test Owners",
         "attributeName": "Name",
         "sourceKey": "Id",
         "isUniqueIdentifier": True
     }
 ]
-
-# A replacement table for any dynamic values found in URL addresses in [DATA_MAPS], defined as 
-# "VALUE TO REPLACE": "ADDRESS TO KEY VALUE TO FILL". The address follows the same syntax as [DATA_MAPS],
-# and will also start its search at [SOURCE_URL].
-URL_REPLACEMENT_KEY = {
-    "device_id": "Id"
-}
 
 # A list of translations for different attributes pulled from the source API. 
 # [attributeName]: { -> attributeName should be the exact name of the attribute specified in both CMDB and [DATA_MAPS].
@@ -183,9 +226,9 @@ WRITE_LOGS_TO_FILE = True
 # Folder logs will be stored in, with this folder being placed at the same level as the file being run.
 LOG_FOLDER = "logs"
 
-# Log file name, formatted as PREFIX - BASE - SUFFIX. Any two of the three can be blank.
-# [BASE_LOG_FILE_NAME] is recommended to be something consistent, and can be adjusted if needed.
-BASE_LOG_FILE_NAME = "dome"
+# Prefix/suffix to be appended to the base name of log files. Recommended to be something like date/time.
+# If none of the prefix, suffix, or base are ever unique, then new logs will overwrite/append to old logs,
+# instead of creating new ones.
 LOG_FILE_PREFIX = f"{datetime.datetime.now():%Y-%m-%d_%H%M%S}"
 LOG_FILE_SUFFIX = ""
 

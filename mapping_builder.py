@@ -1,10 +1,11 @@
 import json
 import requests
+import re
 
-from config import JIRA_URL, JIRA_HEADERS, DATA_MAPS
+from config import JIRA_URL, JIRA_HEADERS, DATA_MAPS, IMPORT_NAME
 from util import get_link_data, get_source_data, ImportLogger
 
-LOGGER = ImportLogger("mapping_builder", "maps").get_logger()
+LOGGER = ImportLogger(f"{IMPORT_NAME} - mapping", re.sub(r'\s+', '-', f"{IMPORT_NAME.lower()}-mapping")).get_logger()
 
 jira_schema = ""
 jira_mapping = ""
@@ -58,10 +59,10 @@ def build_mapping(schema):
         return None
 
     for loc in DATA_MAPS:
-        path = loc.get("objectTypePath").split(".")
+        path = re.split(r'(?<!\\)/', f"{loc.get('objectTypePath')}")
         type_mapping = None
 
-        for entry in get_source_data("schema.objectSchema.objectTypes", schema, "entries in object types", LOGGER):
+        for entry in get_source_data("schema/objectSchema/objectTypes", schema, "entries in object types", LOGGER):
             result = find_type([entry], 0, path)
 
             if result is not None:

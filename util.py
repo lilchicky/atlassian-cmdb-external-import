@@ -3,16 +3,17 @@ import uuid
 import logging
 import os
 import glob
+import re
 
+from urllib.parse import urljoin
 from pathlib import Path
 from config import (
     TIMEOUT, 
     JIRA_HEADERS, 
     DATA_MAPS, 
     POST_TIMEOUT, 
-    SOURCE_HEADERS, 
-    URL_REPLACEMENT_KEY, 
-    SOURCE_URL, 
+    SOURCE_HEADERS,
+    SOURCE_API_URL, 
     JIRA_CANCELLATION_HEADERS, 
     DATA_TRANSLATIONS, 
     WRITE_EMPTY_DATA, 
@@ -21,7 +22,9 @@ from config import (
     LOG_FILE_PREFIX, 
     LOG_FILE_SUFFIX, 
     WRITE_LOGS_TO_FILE, 
-    MAX_SAVED_LOGS
+    MAX_SAVED_LOGS,
+    PROGRESS_WARN_PERCENT,
+    SOURCE_DATA_ENTRY_CONFIG
 )
 
 def get_link_data(source_url: str, source_headers: dict, logger: logging.Logger) -> any:
@@ -45,7 +48,7 @@ def get_link_data(source_url: str, source_headers: dict, logger: logging.Logger)
         logger.error(f"Connection timeout connecting to {source_url}: {e}")
         logger.error(f"Timeout is currently set to {TIMEOUT} seconds. The request may need more time to connect, or the request may not have been able to connect at all.")
 
-        return None
+        return False
 
 def get_source_data(source_path: str, data: set, path_desc: str, logger: logging.Logger) -> any: 
     """
@@ -58,22 +61,7 @@ def get_source_data(source_path: str, data: set, path_desc: str, logger: logging
     Returns whatever data was found at the end of the path, if any.
     """
     logger.debug(f"Resolving path [{source_path}] for {path_desc}.")
-    path = f"{source_path}".split(".")
-
-    if (path[0].startswith("@")):
-        replacement_resolved = {}
-
-        for key in URL_REPLACEMENT_KEY:
-            replacement_resolved.update({key: get_source_data(URL_REPLACEMENT_KEY[key], data, f"url replacement key [{key}]", logger)})
-
-        resolved_url = f"{SOURCE_URL}{(path[0].removeprefix('@')).format(**replacement_resolved)}"
-        logger.debug(f"URL resolved to {resolved_url}")
-
-        new_data = get_link_data(resolved_url, SOURCE_HEADERS, logger)
-        new_data.raise_for_status()
-
-        data = new_data.json()
-        path.pop(0)
+    path = re.split(r'(?<!\\)/', f"{source_path}")
 
     def walk(current, index):
         if index == len(path):
@@ -81,6 +69,15 @@ def get_source_data(source_path: str, data: set, path_desc: str, logger: logging
 
         part = path[index]
 
+        # Get all data from URL at [part]
+        if (part.startswith("@")):
+            resolved_url = urljoin(SOURCE_API_URL, current.get(part.removeprefix('@')))
+            logger.debug(f"URL resolved to {resolved_url}")
+        
+            new_data = get_link_data(resolved_url, SOURCE_HEADERS, logger)
+            return walk(new_data.json(), index + 1)
+
+        # Get all data from array, with the array being the path part before '*'
         if part.startswith("*"):
             if not isinstance(current, list):
                 return ""
@@ -101,7 +98,11 @@ def get_source_data(source_path: str, data: set, path_desc: str, logger: logging
                     results.append(walk(item, index + 1))
 
             return results if results else ""
-        
+
+        if (part.startswith('\\')):
+            part = part.removeprefix('\\')
+
+        # Get all data from a dictionary, if current is a key in it
         if isinstance(current, dict) and part in current:
             return walk(current[part], index + 1)
 
@@ -114,6 +115,47 @@ def get_source_data(source_path: str, data: set, path_desc: str, logger: logging
 
     return result
 
+def flip_pages(source_data: set, logger: logging.Logger) -> list:
+    """
+    Builds and returns a list containing all entries from the source list from every page, within the bounds of max pages.
+    Used to handle pageinated sources.
+
+    [source_data]: Input JSON pulled from [SOURCE_API_URL].
+    """
+    link = get_source_data(SOURCE_DATA_ENTRY_CONFIG.get("source"), source_data, "page key host location", logger)
+    max_pages = SOURCE_DATA_ENTRY_CONFIG.get("maxPages")
+    list_key = SOURCE_DATA_ENTRY_CONFIG.get("listKey")
+    page_key = SOURCE_DATA_ENTRY_CONFIG.get("pageKey")
+
+    if (max_pages):
+        logger.warning(f"Importing all entries from source. Max number of possible pages is set to {max_pages}. Entries on pages past this will not be imported into CMDB.")
+
+    # recursively grab data from the next page
+    def walk(data: set, page_count: int, data_list: list) -> list:
+        data_list = data_list + data.get(list_key)
+        link = get_source_data(page_key, data, f"page {page_count} of source data", logger)
+
+        if not max_pages or page_count < max_pages:
+            if link:
+                extension_link = urljoin(SOURCE_API_URL, link)
+                new_data = get_link_data(extension_link, SOURCE_HEADERS, logger)
+                data_json = new_data.json()
+
+                return walk(data_json, page_count + 1, data_list)
+        else:
+            if link:
+                logger.warning("Maximum number of read pages has been reached, but there may be more than the max.")
+
+        return data_list
+
+    return walk(link, 1, [])
+
+def get_import_status(import_url: str, logger: logging.Logger) -> str:
+    """Helper method to return the status of an ongoing import, using the link provided by posting to .../exections."""
+    status = get_link_data(import_url, JIRA_HEADERS, logger)
+    status = status.json()
+    return status.get("status")
+
 def cancel_import(cancel_url: str, execution_id: str, logger: logging.Logger) -> bool:
     """
     Attempts to cancel the current import using it's cancel URL.
@@ -125,14 +167,19 @@ def cancel_import(cancel_url: str, execution_id: str, logger: logging.Logger) ->
     """
     logger.info(f"Cancelling import [{execution_id}]...")
 
-    del_request = requests.delete(url = cancel_url, headers = JIRA_CANCELLATION_HEADERS)
-    del_request.raise_for_status()
+    try:
+        del_request = requests.delete(url = cancel_url, headers = JIRA_CANCELLATION_HEADERS)
+        del_request.raise_for_status()
 
-    if (del_request.ok):
-        logger.info(f"Import [{execution_id}] was successfully cancelled.")
-        return True
-        
-    logger.error(f"Cancellation of import [{execution_id}] failed: Response {del_request.status_code}")
+        if (del_request.ok):
+            logger.info(f"Import [{execution_id}] was successfully cancelled.")
+            return True
+
+        logger.error(f"Cancellation of import [{execution_id}] failed: Response {del_request.status_code}")
+
+    except requests.exceptions.HTTPError as e:
+        logger.error(f"Cancellation of import [{execution_id}] at URL [{cancel_url}] failed: {e}")
+
     logger.error(f"This import may no longer exist, or the cancellation may no longer be possible. If the status still reads processing, you may need to wait for Jira to resolve the broken import.")
     return False
 
@@ -148,6 +195,10 @@ def post_data(url: str, data: set, logger: logging.Logger) -> bool:
     """
     status_check_counter = 0
 
+    if(not data):
+        logger.warning(f"Data packet was empty, skipping this import.")
+        return True
+
     logger.info(f"Posting data to {url}.")
     import_result = requests.post(url = url, headers = JIRA_HEADERS)
     import_result.raise_for_status()
@@ -159,10 +210,14 @@ def post_data(url: str, data: set, logger: logging.Logger) -> bool:
         import_status = import_result.get("links").get("getExecutionStatus")
         import_cancel = import_result.get("links").get("cancel")
 
-        if(not data):
-            logger.warning(f"Data packet was empty, skipping this import.")
-            return True
+        logger.debug(f"Cancel URL for current import to {url} is {import_cancel}.")
 
+        status = get_import_status(import_status, logger)
+        if (status != "INGESTING"):
+            logger.error(f"Attempt to post an import to {url} failed, current import status is {status}.")
+            return False
+
+        data.update({"completed": True})
         send = requests.post(url = import_submit, headers = JIRA_HEADERS, json = data)
 
         if (send.ok):
@@ -173,26 +228,20 @@ def post_data(url: str, data: set, logger: logging.Logger) -> bool:
             while status_check_counter < POST_TIMEOUT:
                 status_check_counter += 1
 
-                status = get_link_data(import_status, JIRA_HEADERS, logger)
-                status = status.json()
-
-                status_code = status.get("status")
-
-                if (status_code == "DONE"):
+                status = get_import_status(import_status, logger)
+                if (status == "DONE"):
                     logger.info(f"Data import {id} was successful.")
                     return True
 
-            logger.error(f"Data import {id} took too long, aborting. Would you like to attempt to cancel it?")
+                if (PROGRESS_WARN_PERCENT and (POST_TIMEOUT - status_check_counter) % int((POST_TIMEOUT / 100) * PROGRESS_WARN_PERCENT) == 0):
+                    logger.warning(f"Status check {status_check_counter} of {POST_TIMEOUT} returned {status}.")
 
-            cancel = get_user_yn("Cancel current import?")
+            logger.error(f"Data import {id} took too long, aborting. The last retrieved status was [{status}].")
+            logger.error("Attempting to cancel current import...")
+            cancel_import(import_cancel, id, logger)
 
-            if (not cancel):
-                logger.info(f"Import [{id}] will not be cancelled, and will attempt to finish if it can.")
-            else:
-                cancel_import(import_cancel, id, logger)
-                logger.info(f"Current Jira status: {status.get('status')}")
-
-        logger.error(f"Data import failed to connect, aborting: Response {send.status_code}")
+        else:
+            logger.error(f"Data import failed to connect, aborting: Response {send.status_code}")
 
     else:
         logger.error(f"Failed to connect to {url}, aborting: Response {import_result.status_code}")
@@ -215,14 +264,13 @@ def build_data(data: set, logger: logging.Logger) -> any:
         "data": {
 
         },
-        "clientGeneratedId": f"{unique_id}",
-        "completed": True
+        "clientGeneratedId": f"{unique_id}"
     }
 
     logger.info(f"Building data packet {unique_id}...")
 
     for loc in DATA_MAPS:
-        selector = loc.get("objectTypePath").split(".")
+        selector = re.split(r'(?<!\\)/', f"{loc.get('objectTypePath')}")
         selector = f"{selector[-1].lower()}Mapping"
 
         import_data = ""
