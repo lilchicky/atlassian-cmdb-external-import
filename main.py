@@ -5,7 +5,7 @@ import re
 from util import get_link_data, post_data, build_data, cancel_import, get_user_yn, flip_pages, ImportLogger
 from config import JIRA_URL, JIRA_HEADERS, SOURCE_API_URL, SOURCE_HEADERS, IMPORT_NAME
 
-LOGGER = ImportLogger("main", re.sub(r'\s+', '-', IMPORT_NAME.lower())).get_logger()
+LOGGER = ImportLogger("main", re.sub(r'\s+', '-', f"{IMPORT_NAME.lower()}-main")).get_logger()
 
 jira_status = ""
 jira_start = ""
