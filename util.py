@@ -66,7 +66,7 @@ def get_source_data(source_path: str, data: set, path_desc: str, logger: logging
 
     # Recursively walk through the contents of each step along [source_path].
     def walk(current, index):
-        # If we are at the end of the path, return whatever data currently contained by current.
+        # If we are at the end of the path, return whatever data is currently contained by current.
         if index == len(path):
             return current
 
@@ -111,7 +111,7 @@ def get_source_data(source_path: str, data: set, path_desc: str, logger: logging
         if (part.startswith('\\')):
             part = part.removeprefix('\\')
 
-        # Get all data from a dictionary, if current is a key in it
+        # Get all data from a dictionary, if part is a key in it
         if isinstance(current, dict) and part in current:
             return walk(current[part], index + 1)
 
@@ -155,7 +155,7 @@ def flip_pages(source_data: set, logger: logging.Logger) -> list:
                 return walk(data_json, page_count + 1, data_list)
         else:
             if link:
-                logger.warning("Maximum number of read pages has been reached, but there may be more than the max.")
+                logger.warning("Maximum number of read pages has been reached, but there may be additonal pages with data. If this is a mistake, increase the max number of pages iterated through in config.")
 
         return data_list
 
@@ -190,6 +190,8 @@ def cancel_import(cancel_url: str, execution_id: str, logger: logging.Logger) ->
     except requests.exceptions.HTTPError as e:
         logger.error(f"Cancellation of import [{execution_id}] at URL [{cancel_url}] failed: {e}")
 
+    # The most common cause of this is if an import already has the "completed" flag set to true, for whatever reason.
+    # In this case, you simnply have to wait for CMDB to cancel the import on its own.
     logger.error(f"This import may no longer exist, or the cancellation may no longer be possible. If the status still reads processing, you may need to wait for Jira to resolve the broken import.")
     return False
 
@@ -225,7 +227,9 @@ def post_data(url: str, data: set, logger: logging.Logger) -> bool:
         status = get_import_status(import_status, logger)
         if not status:
             return False
-        
+
+        # Prevents submitting data before CMDB is ready for it, which will often cause the import to get stuck
+        # in "processing".
         if (status != "INGESTING"):
             logger.error(f"Attempt to post an import to {url} failed, current import status is {status}.")
             return False
@@ -238,6 +242,9 @@ def post_data(url: str, data: set, logger: logging.Logger) -> bool:
             id = id.json().get("executionId")
             logger.info(f"Starting import {id}...")
 
+            # Check status periodically until the import is finished. Attempting to submit another import while the
+            # last one is processing will throw a 409 forbidden error. If the status has not read "DONE" after
+            # [POST_TIMEOUT] checks, then exit the loop and attempt to cancel the import.
             while status_check_counter < POST_TIMEOUT:
                 status_check_counter += 1
 
@@ -252,8 +259,7 @@ def post_data(url: str, data: set, logger: logging.Logger) -> bool:
                 if (PROGRESS_WARN_PERCENT and (POST_TIMEOUT - status_check_counter) % int((POST_TIMEOUT / 100) * PROGRESS_WARN_PERCENT) == 0):
                     logger.warning(f"Status check {status_check_counter} of {POST_TIMEOUT} returned {status}.")
 
-            logger.error(f"Data import {id} took too long, aborting. The last retrieved status was [{status}].")
-            logger.error("Attempting to cancel current import...")
+            logger.error(f"Data import {id} took too long, aborting. The last retrieved status was [{status}]. Attempting to cancel last posted import.")
             cancel_import(import_cancel, id, logger)
 
         else:
@@ -275,6 +281,7 @@ def build_data(data: set, logger: logging.Logger) -> any:
     """
     is_packet_empty = True
 
+    # ID for this data packet, NOT the ID of the import itself.
     unique_id = uuid.uuid4()
     import_packet = {
         "data": {
@@ -285,7 +292,6 @@ def build_data(data: set, logger: logging.Logger) -> any:
 
     logger.info(f"Building data packet {unique_id}...")
 
-    current_path = ""
     for loc in DATA_MAPS:
         path = loc.get("objectTypePath")
         selector = re.split(r'(?<!\\)/', f"{path}")
@@ -295,6 +301,10 @@ def build_data(data: set, logger: logging.Logger) -> any:
         keys = loc.get('sourceKey')
         attribute_name = loc.get('attributeName')
 
+        # If the source key in [DATA_MAPS] is an array of keys, this will resolve them into a single string.
+        # Each value from each entry will be merged into one string. If a value from an entry is a list, the
+        # elements of that list will be a string seperated by a comma. If the value from an entry is a 2D or
+        # higher list, the deeper lists will not be formatted, but will be converted into a string.
         if (isinstance(keys, list)):
             import_data_list = []
             for key in keys:
@@ -316,6 +326,8 @@ def build_data(data: set, logger: logging.Logger) -> any:
             if WRITE_EMPTY_DATA and not import_data:
                 logger.warning(f"Data for [{attribute_name}] in data packet {unique_id} is empty. WRITE_EMPTY_DATA in config is set to True, so any existing data will be deleted.")
 
+            # Translate data, if an entry has been made in [DATA_TRANSLATIONS], to the desired display name to be imported
+            # into CMDB.
             if (attribute_name in DATA_TRANSLATIONS and f"{import_data}" in DATA_TRANSLATIONS.get(attribute_name)):
                 import_data = DATA_TRANSLATIONS.get(attribute_name).get(f"{import_data}")
 
@@ -345,9 +357,8 @@ def get_user_yn(question: str) -> bool:
 
     return True if response == 'y' else False
 
-# Class to create a logger with uniform formatting across files.
 class ImportLogger():
-
+    """Class to create a logger with consistent formatting across scripts."""
     def __init__(self, logger_name: str, base_log_file_name: str):
         """
         Init ImportLogger
@@ -379,7 +390,7 @@ class ImportLogger():
             )
 
     def get_logger(self) -> logging.Logger:
-        """Return a logging.Logger instance."""
+        """Return the logging.Logger instance of this object."""
         return self.logger
 
     def clean_old_logs(self, folder_path: str):
@@ -402,8 +413,8 @@ class ImportLogger():
 
         self.logger.addHandler(file_handler)
 
-    # Formatter for colors in log lines.
     class Formatter(logging.Formatter):
+        """Custom formatter class for loggers from ImportLogger."""
         grey = "\x1b[38;20m"
         yellow = "\x1b[33m"
         red = "\x1b[31m"
