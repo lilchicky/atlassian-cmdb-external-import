@@ -394,7 +394,11 @@ class ImportLogger():
         return self.logger
 
     def clean_old_logs(self, folder_path: str):
-        """Remove the oldest logs in the log folder, if number of logs is over [MAX_SAVED_LOGS]."""
+        """
+        Remove the oldest logs in the log folder, if number of logs is over [MAX_SAVED_LOGS].
+        This will delete any log that contains the base file name at all, not exclusively exact
+        matches.
+        """
         current_logs = list(filter(os.path.isfile, glob.glob(f"{folder_path}/*{self.base_log_file_name}*.log")))
         current_logs.sort(key = lambda file: os.path.getmtime(file), reverse = True)
 
