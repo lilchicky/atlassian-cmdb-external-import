@@ -5,7 +5,7 @@ import re
 from config import JIRA_URL, JIRA_HEADERS, DATA_MAPS, IMPORT_NAME
 from util import get_link_data, get_source_data, ImportLogger
 
-LOGGER = ImportLogger(f"{IMPORT_NAME} - mapping", re.sub(r'\s+', '-', f"{IMPORT_NAME.lower()}-mapping")).get_logger()
+LOGGER = ImportLogger(f"mapping", re.sub(r'\s+', '-', f"{IMPORT_NAME.lower()}-mapping")).get_logger()
 
 jira_schema = ""
 jira_mapping = ""
@@ -34,9 +34,10 @@ def build_mapping(schema):
             "objectTypeMappings": []
         }
     }
+    object_type_mappings = mapping.get("mapping").get("objectTypeMappings")
 
-    # Somewhat hardcoded recursive function for nested object types. Automatically searches 'children' for the next object type.
-    def find_type(items, index, path):
+    def find_type(items: dict, index: int, path: list) -> set:
+        """Recursively search for the object type at [path]."""
         for item in items:
             if not isinstance(item, dict):
                 return None
@@ -58,48 +59,42 @@ def build_mapping(schema):
 
         return None
 
-    for loc in DATA_MAPS:
-        path = re.split(r'(?<!\\)/', f"{loc.get('objectTypePath')}")
-        type_mapping = None
-
-        for entry in get_source_data("schema/objectSchema/objectTypes", schema, "entries in object types", LOGGER):
-            result = find_type([entry], 0, path)
-
-            if result is not None:
-                type_mapping = result
-                break
-
-        if type_mapping is None:
-            LOGGER.warning(f"Object Type at path [{loc.get('objectTypePath')}] could not be found in the schema, and will not be mapped. Any attributes using this path will not be mapped.")
-            continue
-
-        attribute = next(
-            (
-                attr 
-                for attr in type_mapping.get("attributes")
-                if attr.get("name") == loc.get("attributeName")
-            ),
-            None
-        )
-
-        if attribute is None:
-            LOGGER.warning(f"Attribute [{loc.get('attributeName')}] could not be found in the schema, and will not be mapped.")
-            continue
-
-        LOGGER.info(f"Adding attribute [{loc.get('attributeName')}] to object type [{loc.get('objectTypePath')}] in mapping.")
-        object_type_mappings = mapping.get("mapping").get("objectTypeMappings")
-
-        obj_type = None
-
-        if (object_type_mappings != []):
-            obj_type = next (
+    def exists_in(source: list, source_key: str, search_val: str) -> any:
+        """Check if a [search_val] matches any values of [source_key] in [source]"""
+        instance = None
+        if (source and isinstance(source, list)):
+            instance = next (
                 (
                     type
-                    for type in object_type_mappings
-                    if type.get("objectTypeExternalId") == type_mapping.get("externalId")
+                    for type in source
+                    if type.get(source_key) == search_val
                 ),
                 None
             )
+        return instance
+
+    def add_data_mapping(path: str, attribute_name: str, is_unique: str) -> None:
+        """Add a mapping for some attribute [attribute_name] in object type at [path]"""
+        resolved_path = re.split(r'(?<!\\)/', f"{path}")
+
+        type_mapping = None
+        for entry in get_source_data("schema/objectSchema/objectTypes", schema, "entries in object types", LOGGER):
+            result = find_type([entry], 0, resolved_path)
+        
+            if result is not None:
+                type_mapping = result
+                break
+            
+        if type_mapping is None:
+            LOGGER.warning(f"Object Type at path [{path}] could not be found in the schema, and will not be mapped. Any attributes using this path will not be mapped.")
+            return
+
+        attribute = exists_in(type_mapping.get("attributes"), "name", attribute_name)
+        if attribute is None:
+            LOGGER.warning(f"Attribute [{attribute_name}] could not be found in object type [{path}], and will not be mapped.")
+            return
+
+        obj_type = exists_in(object_type_mappings, "objectTypeExternalId", type_mapping.get("externalId"))
 
         if obj_type is None:
             object_type_mappings.append(
@@ -107,7 +102,7 @@ def build_mapping(schema):
                     "objectTypeExternalId": type_mapping.get("externalId"),
                     "objectTypeName": type_mapping.get("name"),
                     "selector": f"{type_mapping.get('name').lower()}Mapping",
-                    "description": f"Mapping for {loc.get('attributeName')} in {type_mapping.get('name')}",
+                    "description": f"Mapping for {path} in CMDB schema.",
                     "attributesMapping": [
                         {
                             "attributeExternalId": attribute.get("externalId"),
@@ -115,20 +110,17 @@ def build_mapping(schema):
                             "attributeLocators": [
                                 attribute.get("name").lower()
                             ],
-                            "externalIdPart": loc.get("isUniqueIdentifier")
+                            "externalIdPart": is_unique
                         }
                     ]
                 }
             )
 
         else:
-            existing_attribute = next(
-                (
-                    attr
-                    for attr in obj_type.get("attributesMapping")
-                    if attr.get("attributeExternalId") == attribute.get("externalId")
-                ),
-                None
+            existing_attribute = exists_in(
+                obj_type.get("attributesMapping"), 
+                "attributeExternalId", 
+                attribute.get("externalId")
             )
 
             if (existing_attribute is None):
@@ -139,12 +131,25 @@ def build_mapping(schema):
                         "attributeLocators": [
                             attribute.get("name").lower()
                         ],
-                        "externalIdPart": loc.get("isUniqueIdentifier")
+                        "externalIdPart": is_unique
                     }
                 )
 
-        if loc.get("isUniqueIdentifier"):
-            LOGGER.warning(f"Attribute [{loc.get('attributeName')}] is a unique identifier for objects in the object type [{loc.get('objectTypePath')}]. If an object with the value of this attribute does not exist, a new object will be created.")
+        if is_unique:
+            LOGGER.warning(f"Attribute [{attribute_name}] is a unique identifier for objects in the object type [{path}]. If an object with the value of this attribute does not exist, a new object will be created.")
+        
+        LOGGER.info(f"Added attribute [{attribute_name}] to object type [{path}] in mapping.")
+
+    # For each entry in data maps, attempt to create its mapping.
+    current_path = ""
+    for loc in DATA_MAPS:
+        path = loc.get("objectTypePath")
+
+        add_data_mapping(
+            path, 
+            loc.get("attributeName"), 
+            loc.get("isUniqueIdentifier")
+        )
 
     return mapping
 

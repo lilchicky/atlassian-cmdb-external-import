@@ -4,6 +4,7 @@ import logging
 import os
 import glob
 import re
+import json
 
 from urllib.parse import urljoin
 from pathlib import Path
@@ -24,7 +25,8 @@ from config import (
     WRITE_LOGS_TO_FILE, 
     MAX_SAVED_LOGS,
     PROGRESS_WARN_PERCENT,
-    SOURCE_DATA_ENTRY_CONFIG
+    SOURCE_DATA_ENTRY_CONFIG,
+    IMPORT_NAME
 )
 
 def get_link_data(source_url: str, source_headers: dict, logger: logging.Logger) -> any:
@@ -69,7 +71,7 @@ def get_source_data(source_path: str, data: set, path_desc: str, logger: logging
 
         part = path[index]
 
-        # Get all data from URL at [part]
+        # Get all data from URL at [part].
         if (part.startswith("@")):
             resolved_url = urljoin(SOURCE_API_URL, current.get(part.removeprefix('@')))
             logger.debug(f"URL resolved to {resolved_url}")
@@ -77,7 +79,7 @@ def get_source_data(source_path: str, data: set, path_desc: str, logger: logging
             new_data = get_link_data(resolved_url, SOURCE_HEADERS, logger)
             return walk(new_data.json(), index + 1)
 
-        # Get all data from array, with the array being the path part before '*'
+        # Get all data from array, with the array being the path part before '*'.
         if part.startswith("*"):
             if not isinstance(current, list):
                 return ""
@@ -99,6 +101,11 @@ def get_source_data(source_path: str, data: set, path_desc: str, logger: logging
 
             return results if results else ""
 
+        # Return [current] as a literal string. Disregards the rest of the path completely.
+        if part.startswith(".."):
+            return part.removeprefix("..")
+
+        # If an escape character is used, remove it here then continue with the rest of the logic.
         if (part.startswith('\\')):
             part = part.removeprefix('\\')
 
@@ -269,8 +276,10 @@ def build_data(data: set, logger: logging.Logger) -> any:
 
     logger.info(f"Building data packet {unique_id}...")
 
+    current_path = ""
     for loc in DATA_MAPS:
-        selector = re.split(r'(?<!\\)/', f"{loc.get('objectTypePath')}")
+        path = loc.get("objectTypePath")
+        selector = re.split(r'(?<!\\)/', f"{path}")
         selector = f"{selector[-1].lower()}Mapping"
 
         import_data = ""
@@ -293,20 +302,21 @@ def build_data(data: set, logger: logging.Logger) -> any:
             logger.error(f"Attribute [{attribute_name}] is marked as a unique identifier, but is empty. This may cause issues.")
 
         if (import_data or WRITE_EMPTY_DATA):
+            is_packet_empty = False
+
             if WRITE_EMPTY_DATA and not import_data:
                 logger.warning(f"Data for [{attribute_name}] in data packet {unique_id} is empty. WRITE_EMPTY_DATA in config is set to True, so any existing data will be deleted.")
 
             if (attribute_name in DATA_TRANSLATIONS and f"{import_data}" in DATA_TRANSLATIONS.get(attribute_name)):
                 import_data = DATA_TRANSLATIONS.get(attribute_name).get(f"{import_data}")
 
-            is_packet_empty = False
-
             if selector in import_packet.get("data"):
                 import_packet.get("data").get(selector)[0][attribute_name.lower()] = import_data
 
             else:
-                import_packet.get("data").update({
-                    selector: [
+                import_packet.get("data").update(
+                    {
+                        selector: [
                             {
                                 attribute_name.lower(): import_data
                             }
@@ -349,7 +359,15 @@ class ImportLogger():
         self.logger.addHandler(handler)
 
         if WRITE_LOGS_TO_FILE:
-            self.build_log_file_handler()
+            log_folder = Path(__file__).parent.resolve() / LOG_FOLDER
+            path = f"{log_folder}/{LOG_FILE_PREFIX}{'' if not LOG_FILE_PREFIX else '-'}{self.base_log_file_name}{'' if not LOG_FILE_SUFFIX else '-'}{LOG_FILE_SUFFIX}.log"
+
+            self.logger.info(f"Logging to files has been enabled. Creating log file at {path}")
+
+            self.build_log_file_handler(
+                path,
+                log_folder
+            )
 
     def get_logger(self) -> logging.Logger:
         """Return a logging.Logger instance."""
@@ -363,17 +381,13 @@ class ImportLogger():
         for f in current_logs[MAX_SAVED_LOGS:]:
             os.unlink(f)
 
-    def build_log_file_handler(self):
+    def build_log_file_handler(self, path, log_folder):
         """Build a handler to create log files."""
-        log_folder = Path(__file__).parent.resolve() / LOG_FOLDER
         log_folder.mkdir(exist_ok = True)
 
-        file_handler = logging.FileHandler(
-            f"{log_folder}/{LOG_FILE_PREFIX}{'' if not LOG_FILE_PREFIX else '-'}{self.base_log_file_name}{'' if not LOG_FILE_SUFFIX else '-'}{LOG_FILE_SUFFIX}.log",
-            mode = "w"
-        )
+        file_handler = logging.FileHandler(path,mode = "w")
         file_handler.setLevel(LOGGING_LEVEL)
-        file_handler.setFormatter(logging.Formatter("%(asctime)s[%(name)s][%(levelname)s]: %(message)s"))
+        file_handler.setFormatter(logging.Formatter("%(asctime)s[" + IMPORT_NAME + "][%(name)s][%(levelname)s]: %(message)s"))
 
         self.clean_old_logs(log_folder)
 
@@ -385,7 +399,7 @@ class ImportLogger():
         yellow = "\x1b[33m"
         red = "\x1b[31m"
         reset = "\x1b[0m"
-        format = "%(asctime)s[%(name)s][%(levelname)s]: %(message)s"
+        format = "%(asctime)s[" + IMPORT_NAME + "][%(name)s][%(levelname)s]: %(message)s"
 
         FORMATS = {
             logging.DEBUG: grey + format + reset,
