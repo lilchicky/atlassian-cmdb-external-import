@@ -10,8 +10,8 @@ LOGGER = ImportLogger(f"mapping", re.sub(r'\s+', '-', f"{IMPORT_NAME.lower()}-ma
 jira_schema = ""
 jira_mapping = ""
 
-# This returns the schema for the database the token is from, to be used when creating the mappings.
-def get_schema():
+def get_schema() -> set:
+    """Returns the schema pulled from CMDB using the API token. Used when creating mappings."""
     LOGGER.info("Importing current Jira schema...")
 
     schema_data = get_link_data(jira_schema, JIRA_HEADERS, LOGGER)
@@ -28,7 +28,8 @@ def get_schema():
         LOGGER.error(f"Schema Retrieval Failed: {schema_data.status_code}")
         return {}
 
-def build_mapping(schema):
+def build_mapping(schema: set) -> set:
+    """Takes in a schema as JSON from CMDB, then builds a mapping for each point defined in [DATA_MAPS]."""
     mapping = {
         "mapping": {
             "objectTypeMappings": []
@@ -74,7 +75,12 @@ def build_mapping(schema):
         return instance
 
     def add_data_mapping(path: str, attribute_name: str, is_unique: str) -> None:
-        """Add a mapping for some attribute [attribute_name] in object type at [path]"""
+        """
+        Add a mapping for some attribute [attribute_name] in object type at [path].
+        If the object type does NOT exist, then create it and add the attribute to it.
+        If the object type DOES exist, check to see if the attribute already exists.
+        If the attribute does NOT exist inside that attribute type, then add it.
+        """
         resolved_path = re.split(r'(?<!\\)/', f"{path}")
 
         type_mapping = None
@@ -141,7 +147,6 @@ def build_mapping(schema):
         LOGGER.info(f"Added attribute [{attribute_name}] to object type [{path}] in mapping.")
 
     # For each entry in data maps, attempt to create its mapping.
-    current_path = ""
     for loc in DATA_MAPS:
         path = loc.get("objectTypePath")
 
@@ -153,7 +158,8 @@ def build_mapping(schema):
 
     return mapping
 
-def init():
+def init() -> bool:
+    """Initializes the core connections to CMDB. Returns whether it was successful or not."""
     jira_links = get_link_data(JIRA_URL, JIRA_HEADERS, LOGGER)
 
     if (not jira_links.ok):
@@ -175,7 +181,6 @@ def init():
     return True
 
 def main():
-
     if (init()):
         mapping = get_schema()
         mapping.update(build_mapping(mapping))

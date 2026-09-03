@@ -15,7 +15,12 @@ start_time = time.time()
 
 # Initialize relevant links and connections to both Jira and the source API. Returns true if initialization was successful,
 # and false if it was not.
-def init():
+def init() -> any:
+    """
+    Initializes core connections to CMDB and the source API, and builds a list of all
+    entries in the source list defined in config.
+    Returns the list if successful (and not empty), otherwise returns false.
+    """
     LOGGER.info(f"Starting import [{IMPORT_NAME}]")
 
     jira_links = get_link_data(JIRA_URL, JIRA_HEADERS, LOGGER)
@@ -55,10 +60,11 @@ def init():
     LOGGER.info(f"Successfully loaded {len(data_list)} entries from {SOURCE_API_URL}.")
     LOGGER.info(f"Source connection successful: Response {source_links.status_code}")
 
-    return True
+    return data_list
 
 def main():
-    if (init()):
+    data_list = init()
+    if (data_list):
 
         status = get_link_data(jira_status, JIRA_HEADERS, LOGGER)
         status = status.json()

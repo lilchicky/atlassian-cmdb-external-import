@@ -4,7 +4,6 @@ import logging
 import os
 import glob
 import re
-import json
 
 from urllib.parse import urljoin
 from pathlib import Path
@@ -36,7 +35,7 @@ def get_link_data(source_url: str, source_headers: dict, logger: logging.Logger)
     [source_url]: The source URL to attempt to retrieve data from.
     [source_headers]: Any relevant headers needed to connect to the source API.
     
-    Returns the retireved data if successful, otherwise returns None.
+    Returns the retireved data if successful, otherwise returns false.
     """
     try:
         data = requests.get(url = source_url, headers = source_headers, timeout = TIMEOUT)
@@ -54,7 +53,7 @@ def get_link_data(source_url: str, source_headers: dict, logger: logging.Logger)
 
 def get_source_data(source_path: str, data: set, path_desc: str, logger: logging.Logger) -> any: 
     """
-    Resolve some path path.to.value and retrieve the data from that location. See DATA_MAPS in config.py for path syntax.
+    Resolve some path path.to.value and retrieve the data from that location. See config for path syntax.
 
     [source_path]: The path to follow to retrieve some value, with the key being the last element of the path.
     [data]: The "source" JSON at the top of [source_path]. The function will search through [data] to find the desired value.
@@ -65,10 +64,13 @@ def get_source_data(source_path: str, data: set, path_desc: str, logger: logging
     logger.debug(f"Resolving path [{source_path}] for {path_desc}.")
     path = re.split(r'(?<!\\)/', f"{source_path}")
 
+    # Recursively walk through the contents of each step along [source_path].
     def walk(current, index):
+        # If we are at the end of the path, return whatever data currently contained by current.
         if index == len(path):
             return current
 
+        # The string representing which section of the path we are on.
         part = path[index]
 
         # Get all data from URL at [part].
@@ -113,6 +115,8 @@ def get_source_data(source_path: str, data: set, path_desc: str, logger: logging
         if isinstance(current, dict) and part in current:
             return walk(current[part], index + 1)
 
+        # If [current] is something that cannot contain some value, or None, then return nothing.
+        # Handles when a path is incorrect, or points to nothing.
         return ""
 
     result = walk(data, 0)
@@ -157,11 +161,10 @@ def flip_pages(source_data: set, logger: logging.Logger) -> list:
 
     return walk(link, 1, [])
 
-def get_import_status(import_url: str, logger: logging.Logger) -> str:
+def get_import_status(import_url: str, logger: logging.Logger) -> any:
     """Helper method to return the status of an ongoing import, using the link provided by posting to .../exections."""
     status = get_link_data(import_url, JIRA_HEADERS, logger)
-    status = status.json()
-    return status.get("status")
+    return False if not status else status.json().get("status")
 
 def cancel_import(cancel_url: str, execution_id: str, logger: logging.Logger) -> bool:
     """
@@ -220,6 +223,9 @@ def post_data(url: str, data: set, logger: logging.Logger) -> bool:
         logger.debug(f"Cancel URL for current import to {url} is {import_cancel}.")
 
         status = get_import_status(import_status, logger)
+        if not status:
+            return False
+        
         if (status != "INGESTING"):
             logger.error(f"Attempt to post an import to {url} failed, current import status is {status}.")
             return False
@@ -236,6 +242,9 @@ def post_data(url: str, data: set, logger: logging.Logger) -> bool:
                 status_check_counter += 1
 
                 status = get_import_status(import_status, logger)
+                if not status:
+                    return False
+                
                 if (status == "DONE"):
                     logger.info(f"Data import {id} was successful.")
                     return True
