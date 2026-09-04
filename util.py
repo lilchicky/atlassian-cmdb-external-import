@@ -270,7 +270,7 @@ def post_data(url: str, data: set, logger: logging.Logger) -> bool:
 
     return False
 
-def build_data(data: set, logger: logging.Logger) -> any:
+def build_data(data_list: list, logger: logging.Logger) -> any:
     """
     Build a data packet using [data], structured in the way the CMDB import expects. Uses the same automatic naming methods
     for selectors and keys as mapping_builder.py.
@@ -290,69 +290,79 @@ def build_data(data: set, logger: logging.Logger) -> any:
         "clientGeneratedId": f"{unique_id}"
     }
 
-    logger.info(f"Building data packet {unique_id}...")
+    entries = len(data_list)
+    logger.info(f"Building data packet {unique_id} from {entries} entries.")
+    for i, data in enumerate(data_list, start = 1):
+        logger.info(f"* Adding data from entry {i} of {entries} to data packet...")
+        current_packet = {}
 
-    for loc in DATA_MAPS:
-        path = loc.get("objectTypePath")
-        selector = re.split(r'(?<!\\)/', f"{path}")
-        selector = f"{selector[-1].lower()}Mapping"
+        for loc in DATA_MAPS:
+            path = loc.get("objectTypePath")
+            selector = re.split(r'(?<!\\)/', f"{path}")
+            selector = f"{selector[-1].lower()}Mapping"
 
-        import_data = ""
-        keys = loc.get('sourceKey')
-        attribute_name = loc.get('attributeName')
-        type_path = loc.get('objectTypePath')
+            import_data = ""
+            keys = loc.get('sourceKey')
+            attribute_name = loc.get('attributeName')
+            type_path = loc.get('objectTypePath')
 
-        reference_attribute = loc.get('referenceAttributeName')
-        reference_path = loc.get('referenceObjectTypePath')
+            reference_attribute = loc.get('referenceAttributeName')
+            reference_path = loc.get('referenceObjectTypePath')
 
-        # If the source key in [DATA_MAPS] is an array of keys, this will resolve them into a single string.
-        # Each value from each entry will be merged into one string. If a value from an entry is a list, the
-        # elements of that list will be a string seperated by a comma. If the value from an entry is a 2D or
-        # higher list, the deeper lists will not be formatted, but will be converted into a string.
-        if (isinstance(keys, list)):
-            import_data_list = []
-            for key in keys:
-                import_data_from_key = get_source_data(key, data, f'attribute [{attribute_name}]', logger)
-                formatted_data = ", ".join(import_data_from_key) if isinstance(import_data_from_key, list) else import_data_from_key
-                import_data_list.append(formatted_data)
+            # If the source key in [DATA_MAPS] is an array of keys, this will resolve them into a single string.
+            # Each value from each entry will be merged into one string. If a value from an entry is a list, the
+            # elements of that list will be a string seperated by a comma. If the value from an entry is a 2D or
+            # higher list, the deeper lists will not be formatted, but will be converted into a string.
+            if (isinstance(keys, list)):
+                import_data_list = []
+                for key in keys:
+                    import_data_from_key = get_source_data(key, data, f'attribute [{attribute_name}]', logger)
+                    formatted_data = ", ".join(import_data_from_key) if isinstance(import_data_from_key, list) else import_data_from_key
+                    import_data_list.append(formatted_data)
 
-            import_data = "".join(import_data_list)
-
-        else:
-            import_data = get_source_data(keys, data, f"attribute [{attribute_name}]", logger)
-
-        if (not import_data and loc.get("isUniqueIdentifier")):
-            logger.error(f"Attribute [{attribute_name}] in object type [{type_path}] is marked as a unique identifier, but is empty. This may cause issues.")
-
-        if (import_data or WRITE_EMPTY_DATA):
-            if (reference_attribute is not None and reference_attribute and reference_path is not None and reference_path):
-                logger.info(f"Attribute [{attribute_name}] in object type [{type_path}] for data packet {unique_id} references attribute [{reference_attribute}] in object type [{reference_path}].")
-            
-            is_packet_empty = False
-
-            if WRITE_EMPTY_DATA and not import_data:
-                logger.warning(f"Data for [{attribute_name}] in object type [{type_path}] in data packet {unique_id} is empty. WRITE_EMPTY_DATA in config is set to True, so any existing data will be deleted.")
-
-            # Translate data, if an entry has been made in [DATA_TRANSLATIONS], to the desired display name to be imported
-            # into CMDB.
-            if (attribute_name in DATA_TRANSLATIONS and f"{import_data}" in DATA_TRANSLATIONS.get(attribute_name)):
-                import_data = DATA_TRANSLATIONS.get(attribute_name).get(f"{import_data}")
-
-            if selector in import_packet.get("data"):
-                import_packet.get("data").get(selector)[0][attribute_name.lower()] = import_data
+                import_data = "".join(import_data_list)
 
             else:
-                import_packet.get("data").update(
-                    {
-                        selector: [
-                            {
-                                attribute_name.lower(): import_data
-                            }
+                import_data = get_source_data(keys, data, f"attribute [{attribute_name}]", logger)
+
+            if (not import_data and loc.get("isUniqueIdentifier")):
+                logger.error(f"Attribute [{attribute_name}] in object type [{type_path}] is marked as a unique identifier, but is empty. This may cause issues.")
+
+            if (import_data or WRITE_EMPTY_DATA):
+                if selector not in current_packet:
+                    current_packet.update({selector: {}})
+
+                if (reference_attribute is not None and reference_attribute and reference_path is not None and reference_path):
+                    logger.debug(f"Attribute [{attribute_name}] in object type [{type_path}] for data packet {unique_id} references attribute [{reference_attribute}] in object type [{reference_path}].")
+
+                is_packet_empty = False
+
+                if WRITE_EMPTY_DATA and not import_data:
+                    logger.warning(f"Data for [{attribute_name}] in object type [{type_path}] in data packet {unique_id} is empty. WRITE_EMPTY_DATA in config is set to True, so any existing data will be deleted.")
+
+                # Translate data, if an entry has been made in [DATA_TRANSLATIONS], to the desired display name to be imported
+                # into CMDB.
+                if (attribute_name in DATA_TRANSLATIONS and f"{import_data}" in DATA_TRANSLATIONS.get(attribute_name)):
+                    import_data = DATA_TRANSLATIONS.get(attribute_name).get(f"{import_data}")
+
+                current_packet.get(selector).update({attribute_name.lower(): import_data})
+
+            else:
+                logger.warning(f"Data for [{attribute_name}] in object type [{type_path}] in data packet {unique_id} is empty, skipping.")
+
+        if not is_packet_empty:
+            logger.info(f"Data from entry {i} of {entries} was successfully added to data packet.")
+            for sel in current_packet.keys():
+                if sel in import_packet.get("data"):
+                    import_packet.get("data").get(sel).append(current_packet.get(sel))
+                else:
+                    import_packet.get("data").update({
+                        sel: [
+                            current_packet.get(sel)
                         ]
-                    }
-                )
+                    })
         else:
-            logger.warning(f"Data for [{attribute_name}] in object type [{type_path}] in data packet {unique_id} is empty, skipping.")
+            logger.warning(f"Entry {i} of {entries} was empty, and had no data to add to the data packet.")
 
     return import_packet if not is_packet_empty else False
 

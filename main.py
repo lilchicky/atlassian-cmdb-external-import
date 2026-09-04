@@ -1,6 +1,7 @@
 import time
 import datetime
 import re
+import json
 
 from util import get_link_data, post_data, build_data, cancel_import, get_user_yn, flip_pages, ImportLogger
 from config import JIRA_URL, JIRA_HEADERS, SOURCE_API_URL, SOURCE_HEADERS, IMPORT_NAME
@@ -70,15 +71,8 @@ def main():
         status = status.json()
 
         if (status.get("status") == "IDLE"):
-            entries = len(data_list)
-            LOGGER.info(f"Starting {entries} imports.")
-
-            # Main loop to import each entry into CMDB
-            for key, entry in enumerate(data_list, start = 1):
-                LOGGER.info(f"* Preparing import {key} of {entries}...")
-                if (not post_data(jira_start, build_data(entry, LOGGER), LOGGER)):
-                    LOGGER.error(f"Remaining {entries - key} imports have been cancelled.")
-                    break
+            data = build_data(data_list, LOGGER)
+            post_data(jira_start, data, LOGGER)
 
         else:
             LOGGER.error(f"Jira is currently busy! Current import status: {status.get('status')}")
