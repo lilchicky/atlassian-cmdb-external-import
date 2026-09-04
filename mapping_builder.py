@@ -59,7 +59,7 @@ def build_mapping(schema: set) -> set:
                 return result
 
         return None
-
+            
     def exists_in(source: list, source_key: str, search_val: str) -> any:
         """Check if a [search_val] matches any values of [source_key] in [source]"""
         instance = None
@@ -74,17 +74,26 @@ def build_mapping(schema: set) -> set:
             )
         return instance
 
-    def add_data_mapping(path: str, attribute_name: str, is_unique: str) -> None:
+    def add_data_mapping(data_map: set) -> None:
         """
         Add a mapping for some attribute [attribute_name] in object type at [path].
         If the object type does NOT exist, then create it and add the attribute to it.
         If the object type DOES exist, check to see if the attribute already exists.
         If the attribute does NOT exist inside that attribute type, then add it.
         """
+        path = data_map.get("objectTypePath")
+        attribute_name = data_map.get("attributeName")
+        is_unique = data_map.get("isUniqueIdentifier")
+
+        reference_path = data_map.get("referenceObjectTypePath")
+        reference_attribute = data_map.get("referenceAttributeName")
+
         resolved_path = re.split(r'(?<!\\)/', f"{path}")
 
         type_mapping = None
-        for entry in get_source_data("schema/objectSchema/objectTypes", schema, "entries in object types", LOGGER):
+        all_object_types = get_source_data("schema/objectSchema/objectTypes", schema, "entries in object types", LOGGER)
+
+        for entry in all_object_types:
             result = find_type([entry], 0, resolved_path)
         
             if result is not None:
@@ -101,6 +110,56 @@ def build_mapping(schema: set) -> set:
             return
 
         obj_type = exists_in(object_type_mappings, "objectTypeExternalId", type_mapping.get("externalId"))
+        is_reference = False
+
+        # Handling for if the current attribute is defined as a referenced object in the schema. If it is,
+        # the mapping will need an "objectMappingIQL" value.
+        if (attribute.get("type") == "referenced_object"):
+            if (reference_path is None or not reference_path):
+                LOGGER.warning(f"Attribute [{attribute_name}] in object type [{path}] references an object in another table, but no reference object type is set.")
+            elif (reference_attribute is None or not reference_attribute):
+                LOGGER.warning(f"Attribute [{attribute_name}] in object type [{path}] references an attribute in object type [{reference_path}], but no attribute is defined.")
+            else:
+                resolved_reference_path = re.split(r'(?<!\\)/', f"{reference_path}")
+
+                reference_type_mapping = None
+                for entry in all_object_types:
+                    result = find_type([entry], 0, resolved_reference_path)
+                        
+                    if result is not None:
+                        reference_type_mapping = result
+                        break
+
+                if reference_type_mapping is None:
+                    LOGGER.warning(f"Reference object type at path [{reference_path}] could not be found in the schema, and will not be mapped. Any attributes referencing this path will not be mapped.")
+                    return
+                if reference_type_mapping.get("externalId") != attribute.get("referenceObjectTypeExternalId"):
+                    LOGGER.warning(f"The reference object type [{reference_path}] does not match the referenced object type provided by [{attribute_name}] in [{path}], and will not be mapped.")
+                    return
+
+                existing_reference_attribute = exists_in(reference_type_mapping.get("attributes"), "name", reference_attribute)
+                if existing_reference_attribute is None:
+                    LOGGER.warning(f"The reference attribute [{reference_attribute}] for attribute [{attribute_name}] in object type [{path}] does not exist in object type [{reference_path}], and will not be mapped.")
+                    return
+
+                LOGGER.info(f"The attribute [{reference_attribute}] referenced by [{attribute_name}] in object type [{path}] was found.")
+                is_reference = True
+
+        attribute_data = {
+            "attributeExternalId": attribute.get("externalId"),
+            "attributeName": attribute.get("name"),
+            "attributeLocators": [
+                attribute.get("name").lower()
+            ],
+            "externalIdPart": is_unique
+        }
+
+        if is_reference:
+            attribute_data.update(
+                {
+                    "objectMappingIQL": f"{reference_attribute} = ${{{attribute.get('name').lower()}}}"
+                }
+            )
 
         if obj_type is None:
             object_type_mappings.append(
@@ -110,14 +169,7 @@ def build_mapping(schema: set) -> set:
                     "selector": f"{type_mapping.get('name').lower()}Mapping",
                     "description": f"Mapping for {path} in CMDB schema.",
                     "attributesMapping": [
-                        {
-                            "attributeExternalId": attribute.get("externalId"),
-                            "attributeName": attribute.get("name"),
-                            "attributeLocators": [
-                                attribute.get("name").lower()
-                            ],
-                            "externalIdPart": is_unique
-                        }
+                        attribute_data
                     ]
                 }
             )
@@ -131,14 +183,7 @@ def build_mapping(schema: set) -> set:
 
             if (existing_attribute is None):
                 obj_type.get("attributesMapping").append(
-                    {
-                        "attributeExternalId": attribute.get("externalId"),
-                        "attributeName": attribute.get("name"),
-                        "attributeLocators": [
-                            attribute.get("name").lower()
-                        ],
-                        "externalIdPart": is_unique
-                    }
+                    attribute_data
                 )
 
         if is_unique:
@@ -148,13 +193,7 @@ def build_mapping(schema: set) -> set:
 
     # For each entry in data maps, attempt to create its mapping.
     for loc in DATA_MAPS:
-        path = loc.get("objectTypePath")
-
-        add_data_mapping(
-            path, 
-            loc.get("attributeName"), 
-            loc.get("isUniqueIdentifier")
-        )
+        add_data_mapping(loc)
 
     return mapping
 

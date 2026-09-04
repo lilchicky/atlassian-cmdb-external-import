@@ -302,6 +302,9 @@ def build_data(data: set, logger: logging.Logger) -> any:
         attribute_name = loc.get('attributeName')
         type_path = loc.get('objectTypePath')
 
+        reference_attribute = loc.get('referenceAttributeName')
+        reference_path = loc.get('referenceObjectTypePath')
+
         # If the source key in [DATA_MAPS] is an array of keys, this will resolve them into a single string.
         # Each value from each entry will be merged into one string. If a value from an entry is a list, the
         # elements of that list will be a string seperated by a comma. If the value from an entry is a 2D or
@@ -322,6 +325,9 @@ def build_data(data: set, logger: logging.Logger) -> any:
             logger.error(f"Attribute [{attribute_name}] in object type [{type_path}] is marked as a unique identifier, but is empty. This may cause issues.")
 
         if (import_data or WRITE_EMPTY_DATA):
+            if (reference_attribute is not None and reference_attribute and reference_path is not None and reference_path):
+                logger.info(f"Attribute [{attribute_name}] in object type [{type_path}] for data packet {unique_id} references attribute [{reference_attribute}] in object type [{reference_path}].")
+            
             is_packet_empty = False
 
             if WRITE_EMPTY_DATA and not import_data:

@@ -128,6 +128,16 @@ PROGRESS_WARN_PERCENT = 20
 # --------------------------------------------------------------------------------------------------------------
 DATA_MAPS = [
     {
+        "objectTypePath": "Locations/Racks",
+        "attributeName": "Name",
+        "sourceKey": [
+            "@InventoryDetails@odata.navigationLink/value/*18/InventoryInfo/*/Aisle",
+            "@InventoryDetails@odata.navigationLink/value/*18/InventoryInfo/*/Rack"
+        ],
+        "isUniqueIdentifier": True
+    },
+
+    {
         "objectTypePath": "Devices/Servers",
         "attributeName": "Identifier",
         "sourceKey": "Identifier",
@@ -170,7 +180,9 @@ DATA_MAPS = [
             "@InventoryDetails@odata.navigationLink/value/*18/InventoryInfo/*/Aisle",
             "@InventoryDetails@odata.navigationLink/value/*18/InventoryInfo/*/Rack"
         ],
-        "isUniqueIdentifier": False
+        "isUniqueIdentifier": False,
+        "referenceAttributeName": "Name",
+        "referenceObjectTypePath": "Locations/Racks"
     },
     {
         "objectTypePath": "Devices/Servers",
@@ -201,16 +213,6 @@ DATA_MAPS = [
         "attributeName": "import_source",
         "sourceKey": "..DOME",
         "isUniqueIdentifier": False
-    },
-
-    {
-        "objectTypePath": "Locations/Racks",
-        "attributeName": "Name",
-        "sourceKey": [
-            "@InventoryDetails@odata.navigationLink/value/*18/InventoryInfo/*/Aisle",
-            "@InventoryDetails@odata.navigationLink/value/*18/InventoryInfo/*/Rack"
-        ],
-        "isUniqueIdentifier": True
     }
 ]
 
