@@ -25,7 +25,7 @@ def get_schema() -> set:
         return schema_json
 
     else:
-        LOGGER.error(f"Schema Retrieval Failed: {schema_data.status_code}")
+        LOGGER.critical(f"Schema Retrieval Failed: {schema_data.status_code}")
         return {}
 
 def build_mapping(schema: set) -> set:
@@ -202,7 +202,7 @@ def init() -> bool:
     jira_links = get_link_data(JIRA_URL, JIRA_HEADERS, LOGGER)
 
     if (not jira_links.ok):
-        LOGGER.error(f"Jira connection failed: Response {jira_links.status_code}")
+        LOGGER.critical(f"Jira connection failed: Response {jira_links.status_code}")
         return False
 
     global jira_schema, jira_mapping
@@ -234,11 +234,11 @@ def main():
             LOGGER.info(f"Mapping update successful: Response {patch.status_code}")
 
         else:
-            LOGGER.error(f"Mapping update was not successful: Response {patch.status_code}")
-            LOGGER.error(patch.text)
+            LOGGER.critical(f"Mapping update was not successful: Response {patch.status_code}")
+            LOGGER.critical(patch.text)
 
     else:
-        LOGGER.error("Initialization failed, aborting.")
+        LOGGER.critical("Initialization failed, aborting.")
 
 if __name__ == "__main__":
     main()

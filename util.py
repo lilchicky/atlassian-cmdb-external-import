@@ -46,8 +46,8 @@ def get_link_data(source_url: str, source_headers: dict, logger: logging.Logger)
         return data
     
     except requests.exceptions.ConnectionError as e:
-        logger.error(f"Connection timeout connecting to {source_url}: {e}")
-        logger.error(f"Timeout is currently set to {TIMEOUT} seconds. The request may need more time to connect, or the request may not have been able to connect at all.")
+        logger.critical(f"Connection timeout connecting to {source_url}: {e}")
+        logger.critical(f"Timeout is currently set to {TIMEOUT} seconds. The request may need more time to connect, or the request may not have been able to connect at all.")
 
         return False
 
@@ -185,14 +185,14 @@ def cancel_import(cancel_url: str, execution_id: str, logger: logging.Logger) ->
             logger.info(f"Import [{execution_id}] was successfully cancelled.")
             return True
 
-        logger.error(f"Cancellation of import [{execution_id}] failed: Response {del_request.status_code}")
+        logger.critical(f"Cancellation of import [{execution_id}] failed: Response {del_request.status_code}")
 
     except requests.exceptions.HTTPError as e:
-        logger.error(f"Cancellation of import [{execution_id}] at URL [{cancel_url}] failed: {e}")
+        logger.critical(f"Cancellation of import [{execution_id}] at URL [{cancel_url}] failed: {e}")
 
     # The most common cause of this is if an import already has the "completed" flag set to true, for whatever reason.
     # In this case, you simnply have to wait for CMDB to cancel the import on its own.
-    logger.error(f"This import may no longer exist, or the cancellation may no longer be possible. If the status still reads processing, you may need to wait for Jira to resolve the broken import.")
+    logger.critical(f"This import may no longer exist, or the cancellation may no longer be possible. If the status still reads processing, you may need to wait for Jira to resolve the broken import.")
     return False
 
 def post_data(url: str, data: set, logger: logging.Logger) -> bool:
@@ -231,7 +231,7 @@ def post_data(url: str, data: set, logger: logging.Logger) -> bool:
         # Prevents submitting data before CMDB is ready for it, which will often cause the import to get stuck
         # in "processing".
         if (status != "INGESTING"):
-            logger.error(f"Attempt to post an import to {url} failed, current import status is {status}.")
+            logger.critical(f"Attempt to post an import to {url} failed, current import status is {status}.")
             return False
 
         data.update({"completed": True})
@@ -259,14 +259,14 @@ def post_data(url: str, data: set, logger: logging.Logger) -> bool:
                 if (PROGRESS_WARN_PERCENT and (POST_TIMEOUT - status_check_counter) % int((POST_TIMEOUT / 100) * PROGRESS_WARN_PERCENT) == 0):
                     logger.warning(f"Status check {status_check_counter} of {POST_TIMEOUT} returned {status}.")
 
-            logger.error(f"Data import {id} took too long, aborting. The last retrieved status was [{status}]. Attempting to cancel last posted import.")
+            logger.critical(f"Data import {id} took too long, aborting. The last retrieved status was [{status}]. Attempting to cancel last posted import.")
             cancel_import(import_cancel, id, logger)
 
         else:
-            logger.error(f"Data import failed to connect, aborting: Response {send.status_code}")
+            logger.critical(f"Data import failed to connect, aborting: Response {send.status_code}")
 
     else:
-        logger.error(f"Failed to connect to {url}, aborting: Response {import_result.status_code}")
+        logger.critical(f"Failed to connect to {url}, aborting: Response {import_result.status_code}")
 
     return False
 

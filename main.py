@@ -31,11 +31,11 @@ def init() -> any:
         return False
 
     if (not jira_links.ok):
-        LOGGER.error(f"Jira connection failed: Response {jira_links.status_code}")
+        LOGGER.critical(f"Jira connection failed: Response {jira_links.status_code}")
         return False
 
     if (not source_links.ok):
-        LOGGER.error(f"Source connection failed: Response {source_links.status_code}")
+        LOGGER.critical(f"Source connection failed: Response {source_links.status_code}")
         return False
 
     global jira_status, jira_start, jira_mapping, data_list
@@ -55,7 +55,7 @@ def init() -> any:
     data_list = flip_pages(source_json, LOGGER)
 
     if not data_list:
-        LOGGER.error("Source connection was successful, but no data was found.")
+        LOGGER.critical("Source connection was successful, but no data was found.")
         return False
     
     LOGGER.info(f"Successfully loaded {len(data_list)} entries from {SOURCE_API_URL}.")
@@ -93,7 +93,7 @@ def main():
                     cancel_import(f"{jira_start.replace('/assets/', '/insight/')}/{execution_id}", execution_id, LOGGER)
             
     else:
-        LOGGER.error("Initialization failed, aborting.")
+        LOGGER.critical("Initialization failed, aborting.")
 
     LOGGER.info(f"Finished running in {datetime.timedelta(seconds = time.time() - start_time)}.")
 
