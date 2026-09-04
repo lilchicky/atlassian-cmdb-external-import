@@ -119,6 +119,15 @@ PROGRESS_WARN_PERCENT = 20
 #       differentiate between objects inside the specified object type. This should be something unique to each object
 #       (or entry in [listKey]), and should ideally be unchanging. If an object with matching values for ALL unique 
 #       identifiers does not exist, then A NEW OBJECT WILL BE CREATED.
+# 
+# OPTIONAL REFERENCE PARAMETERS
+# These parameters are completely optional, and can be omitted entirely. They define details for referencing other tables
+# in CMDB (like foreign keys). Note that both must be set to create a reference. If you want to add links to data being added
+# in the same config, place the referenced data map before the referencing data map in [DATA_MAPS].
+#
+# [referenceAttributeName]: The attribute name you wish to map the return data from sourceKey to from the object type that
+#       is being referenced. Must be the name of the attribute, NOT display name!
+# [referenceObjectTypePath]: The path to the object type that contains the attribute being referenced.
 
 # --------------------------------------------- IMPORTANT NOTICES ---------------------------------------------
 # | If you make any changes here, you need to rerun mapping_builder.py, so the mappings reflect the new data maps.
@@ -131,8 +140,8 @@ DATA_MAPS = [
         "objectTypePath": "Locations/Racks",
         "attributeName": "Name",
         "sourceKey": [
-            "@InventoryDetails@odata.navigationLink/value/*18/InventoryInfo/*/Aisle",
-            "@InventoryDetails@odata.navigationLink/value/*18/InventoryInfo/*/Rack"
+            "@InventoryDetails@odata.navigationLink/value/*18/InventoryInfo/*/Rack",
+            "@InventoryDetails@odata.navigationLink/value/*18/InventoryInfo/*/Aisle"
         ],
         "isUniqueIdentifier": True
     },
