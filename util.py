@@ -300,6 +300,7 @@ def build_data(data: set, logger: logging.Logger) -> any:
         import_data = ""
         keys = loc.get('sourceKey')
         attribute_name = loc.get('attributeName')
+        type_path = loc.get('objectTypePath')
 
         # If the source key in [DATA_MAPS] is an array of keys, this will resolve them into a single string.
         # Each value from each entry will be merged into one string. If a value from an entry is a list, the
@@ -315,16 +316,16 @@ def build_data(data: set, logger: logging.Logger) -> any:
             import_data = "".join(import_data_list)
 
         else:
-            import_data = get_source_data(keys, data, f"attribute [{loc.get('attributeName')}]", logger)
+            import_data = get_source_data(keys, data, f"attribute [{attribute_name}]", logger)
 
         if (not import_data and loc.get("isUniqueIdentifier")):
-            logger.error(f"Attribute [{attribute_name}] is marked as a unique identifier, but is empty. This may cause issues.")
+            logger.error(f"Attribute [{attribute_name}] in object type [{type_path}] is marked as a unique identifier, but is empty. This may cause issues.")
 
         if (import_data or WRITE_EMPTY_DATA):
             is_packet_empty = False
 
             if WRITE_EMPTY_DATA and not import_data:
-                logger.warning(f"Data for [{attribute_name}] in data packet {unique_id} is empty. WRITE_EMPTY_DATA in config is set to True, so any existing data will be deleted.")
+                logger.warning(f"Data for [{attribute_name}] in object type [{type_path}] in data packet {unique_id} is empty. WRITE_EMPTY_DATA in config is set to True, so any existing data will be deleted.")
 
             # Translate data, if an entry has been made in [DATA_TRANSLATIONS], to the desired display name to be imported
             # into CMDB.
@@ -345,7 +346,7 @@ def build_data(data: set, logger: logging.Logger) -> any:
                     }
                 )
         else:
-            logger.warning(f"Data for [{loc.get('attributeName')}] in data packet {unique_id} is empty, skipping.")
+            logger.warning(f"Data for [{attribute_name}] in object type [{type_path}] in data packet {unique_id} is empty, skipping.")
 
     return import_packet if not is_packet_empty else False
 

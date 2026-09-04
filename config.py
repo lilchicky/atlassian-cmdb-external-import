@@ -165,7 +165,7 @@ DATA_MAPS = [
     },
     {
         "objectTypePath": "Devices/Servers",
-        "attributeName": "Rack (Testing)",
+        "attributeName": "rack_link_testing",
         "sourceKey": [
             "@InventoryDetails@odata.navigationLink/value/*18/InventoryInfo/*/Aisle",
             "@InventoryDetails@odata.navigationLink/value/*18/InventoryInfo/*/Rack"
@@ -204,9 +204,12 @@ DATA_MAPS = [
     },
 
     {
-        "objectTypePath": "Org/Import Test Owners",
+        "objectTypePath": "Locations/Racks",
         "attributeName": "Name",
-        "sourceKey": "Id",
+        "sourceKey": [
+            "@InventoryDetails@odata.navigationLink/value/*18/InventoryInfo/*/Aisle",
+            "@InventoryDetails@odata.navigationLink/value/*18/InventoryInfo/*/Rack"
+        ],
         "isUniqueIdentifier": True
     }
 ]
