@@ -49,9 +49,8 @@ def init() -> any:
 
     LOGGER.info(f"Jira connection successful: Response {jira_links.status_code}")
 
-    # Save JSON from source API
+    # Get JSON from source API and build a list of entries with it
     source_json = source_links.json()
-
     data_list = flip_pages(source_json, LOGGER)
 
     if not data_list:
@@ -70,6 +69,7 @@ def main():
         status = get_link_data(jira_status, JIRA_HEADERS, LOGGER)
         status = status.json()
 
+        # Attempt post if CMDB status is free.
         if (status.get("status") == "IDLE"):
             data = build_data(data_list, LOGGER)
             post_data(jira_start, data, LOGGER)

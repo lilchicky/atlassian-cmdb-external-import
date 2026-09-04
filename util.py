@@ -292,9 +292,11 @@ def build_data(data_list: list, logger: logging.Logger) -> any:
 
     entries = len(data_list)
     logger.info(f"Building data packet {unique_id} from {entries} entries.")
+
     for i, data in enumerate(data_list, start = 1):
         logger.info(f"* Adding data from entry {i} of {entries} to data packet...")
         current_packet = {}
+        is_packet_empty = True
 
         for loc in DATA_MAPS:
             path = loc.get("objectTypePath")
@@ -350,6 +352,7 @@ def build_data(data_list: list, logger: logging.Logger) -> any:
             else:
                 logger.warning(f"Data for [{attribute_name}] in object type [{type_path}] in data packet {unique_id} is empty, skipping.")
 
+        # If data was found and added to the entry's packet, then add it to the main data packet.
         if not is_packet_empty:
             logger.info(f"Data from entry {i} of {entries} was successfully added to data packet.")
             for sel in current_packet.keys():
